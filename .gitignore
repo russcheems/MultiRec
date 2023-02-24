@@ -1,0 +1,6 @@
+*__pycache__*
+*.pyc
+amazon_data/
+nltk_data/
+sim_res/
+CKPT_DIR/
