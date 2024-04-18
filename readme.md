@@ -54,7 +54,5 @@ If you find this repository helpful, please consider citing our paper:
   url          = {https://doi.org/10.1145/3583780.3614770},
   doi          = {10.1145/3583780.3614770},
   timestamp    = {Wed, 22 Nov 2023 13:37:55 +0100},
-  biburl       = {https://dblp.org/rec/conf/cikm/0004LLWYL23.bib},
-  bibsource    = {dblp computer science bibliography, https://dblp.org}
 }
 ```
