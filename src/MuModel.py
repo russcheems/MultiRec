@@ -51,7 +51,10 @@ class MuADSE():
     """
     name="DoubleEmbeddingModel2"
 
-    def __init__(self,flags,data_loader,group_info,expert):
+    def __init__(self,flags,data_loader,group_info,expert,
+                 expert2,expert3,
+                 task
+                 ):
         print("this is group model")
         self.num_class    = flags.num_class
         self.emb_size     = flags.emb_size
@@ -76,7 +79,9 @@ class MuADSE():
         self.data_size  = data_loader.data_size+1
         self.vec_texts  = data_loader.vec_texts # 151255, 60
         self.expert1 = expert
-        # self.expert2 = expert2
+        self.expert2 = expert2
+        self.expert3 = expert3
+        self.task = task
 
         self.ckpt_dir=os.path.join(flags.ckpt_dir,self.name) 
     
@@ -112,25 +117,86 @@ class MuADSE():
         self.init_input()
 
         # 构建v,d的相关结构
-
-        pred_fc,u_rating_latent_fc,i_rating_latent_fc=self.expert1.build(self.user_group_rating,
+        if self.task=="rate":
+            pred_fc,u_rating_latent_fc,i_rating_latent_fc=self.expert1.build(self.user_group_rating,
                                    self.item_group_rating,
                                    self.user_group_review,
                                    self.item_group_review,
                                    self.user_group_interc,
                                    self.item_group_interc,self.utext,self.itext)
+            rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc,u_rating_latent_fc,i_rating_latent_fc,expert=self.expert1)
+            model = Model(inputs=[self.user_group_rating,
+                                  self.user_group_interc,
+                                  self.user_group_review,
+                                  self.item_group_rating,
+                                  self.item_group_interc,
+                                  self.item_group_review,
+                                  self.utext, self.itext],
+                          outputs=[r_w_fc])
+        elif self.task=="ctr":
+            pred_fc_ctr,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr=self.expert3.build(self.user_group_rating,
+                                      self.item_group_rating,
+                                      self.user_group_review,
+                                      self.item_group_review,
+                                      self.user_group_interc,
+                                      self.item_group_interc,self.utext,self.itext)
+
+            rating_latent_fc,r_w_fc_ctr=self.predict_by_d(pred_fc_ctr,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr,expert=self.expert3)
+            #ctr的输出加一个sigmoid，该层名字为output_2
+            r_w_fc_ctr = Dense(1,activation="sigmoid",name="output_2")(r_w_fc_ctr)
+
+            model = Model(inputs=[self.user_group_rating,
+                                  self.user_group_interc,
+                                  self.user_group_review,
+                                  self.item_group_rating,
+                                  self.item_group_interc,
+                                  self.item_group_review,
+                                  self.utext, self.itext],
+                          outputs=[r_w_fc_ctr])
+        
+        else:
+
+            pred_fc,u_rating_latent_fc,i_rating_latent_fc=self.expert1.build(self.user_group_rating,
+                                    self.item_group_rating,
+                                    self.user_group_review,
+                                    self.item_group_review,
+                                    self.user_group_interc,
+                                    self.item_group_interc,self.utext,self.itext)
+            
+
+            pred_fc_share,u_rating_latent_fc_share,i_rating_latent_fc_share=self.expert2.build(self.user_group_rating,
+                                    self.item_group_rating,
+                                    self.user_group_review,
+                                    self.item_group_review,
+                                    self.user_group_interc,
+                                    self.item_group_interc,self.utext,self.itext)
+            
+            pred_fc_ctr,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr=self.expert3.build(self.user_group_rating,
+                                        self.item_group_rating,
+                                        self.user_group_review,
+                                        self.item_group_review,
+                                        self.user_group_interc,
+                                        self.item_group_interc,self.utext,self.itext)
+            
+            # 使用Average融合pred_fc和pred_fc_share
+            pred_fc = keras.layers.Average()([pred_fc,pred_fc_share])
+            pred_fc_ctr = keras.layers.Average()([pred_fc_ctr,pred_fc_share])
 
 
-        rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc,u_rating_latent_fc,i_rating_latent_fc)
 
-        model = Model(inputs=[self.user_group_rating,
-                              self.user_group_interc,
-                              self.user_group_review,
-                              self.item_group_rating,
-                              self.item_group_interc,
-                              self.item_group_review,
-                              self.utext, self.itext],
-                      outputs=[r_w_fc])
+            rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc,u_rating_latent_fc,i_rating_latent_fc,expert=self.expert1)
+            ctr_latent_fc,r_w_fc_ctr=self.predict_by_d(pred_fc_ctr,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr,expert=self.expert3)
+            #ctr的输出加一个sigmoid，该层名字为output_2
+            r_w_fc_ctr = Dense(1,activation="sigmoid",name="output_2")(r_w_fc_ctr)
+
+            model = Model(inputs=[self.user_group_rating,
+                                self.user_group_interc,
+                                self.user_group_review,
+                                self.item_group_rating,
+                                self.item_group_interc,
+                                self.item_group_review,
+                                self.utext, self.itext],
+                        outputs=[r_w_fc,r_w_fc_ctr])
 
         self.model = model
 
@@ -139,20 +205,15 @@ class MuADSE():
 
 
 
-    
-
-
-
-
-    def predict_by_d(self,w,u_latent,i_latent):
+    def predict_by_d(self,w,u_latent,i_latent,expert):
         """
         return P(r|w)
         """
-        self.rd_layers = self.expert1.get_rd()
+        rd_layers = expert.get_rd()
         layer=concatenate([w,u_latent,i_latent])
-        for one_layer in self.rd_layers[:-1]:
+        for one_layer in rd_layers[:-1]:
             layer=one_layer(layer)
-        res=self.rd_layers[-1](layer)    
+        res=rd_layers[-1](layer)    
         return layer,res
         # for one_dim in layers:
         # for i in [3,2,1]:
@@ -182,7 +243,6 @@ class MuADSE():
         return pred
 
     def train(self,data_loader):
-        
         # 存储路径
         checkpoint_dir=self.ckpt_dir
         checkpoint_path=os.path.join(checkpoint_dir,"{}.h5".format(self.name))
@@ -195,8 +255,15 @@ class MuADSE():
         # 配置优化器
         # self.model.compile(optimizer="adam",loss="mean_squared_error",
         #     metrics = [RootMeanSquaredError(), "mean_absolute_error"])
-        self.model.compile(optimizer="adam",loss="mean_squared_error",
-            metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+        if self.task=="rate":
+            self.model.compile(optimizer="adam",loss="mean_squared_error",
+                metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+        elif self.task=="ctr":
+            self.model.compile(optimizer="adam",loss="binary_crossentropy",
+                metrics = ["accuracy",tf.keras.metrics.Recall()])
+        else:
+            self.model.compile(optimizer="adam",loss={"P_r_w":"mean_squared_error","output_2":"binary_crossentropy"},
+                metrics ={ "P_r_w":[RootMeanSquaredError(), "mean_absolute_error"],"output_2":"accuracy"})
 
         # 读取训练数据
         (   user_group_ratings,
@@ -205,7 +272,7 @@ class MuADSE():
             item_group_ratings,
             item_group_intercs,
             item_group_reviews,
-            utext, itext, label) = data_loader.all_train_data_with_group_info(self.group_info)
+            utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
         train_data = {
             "user_group_rating": user_group_ratings,
             "user_group_interc": user_group_intercs,
@@ -223,7 +290,7 @@ class MuADSE():
          v_item_group_ratings,
          v_item_group_intercs,
          v_item_group_reviews,
-         v_utext, v_itext, v_label) = data_loader.eval_with_group_info()
+         v_utext, v_itext, v_label,v_label_ctr) = data_loader.eval_with_group_info()
         # valid_data = {"u_input": v_u_input,
         #               "i_input": v_i_input,
         #               "text": v_text,
@@ -238,14 +305,32 @@ class MuADSE():
                       v_item_group_intercs,
                       v_item_group_reviews,
                       v_utext, v_itext]
-        valid=(valid_data,v_label)
+        valid=(valid_data,v_label,v_label_ctr)
         
         # 训练模型
         # self.model.summary()
         t0=time()
-        
-        history = self.model.fit(train_data, label, epochs=self.epochs, verbose=1,batch_size=self.batch_size,
-                                 callbacks=[cp_callback],validation_data=valid, validation_freq=1)
+        if self.task == "rate":
+            history = self.model.fit(train_data, label, 
+                                 epochs=self.epochs, verbose=1,batch_size=self.batch_size,
+                                 callbacks=[cp_callback],
+                                 validation_data=(valid_data,v_label),
+                                 validation_freq=1)
+        elif self.task == "ctr":
+            history = self.model.fit(train_data, label_ctr, 
+                                 epochs=self.epochs, verbose=1,batch_size=self.batch_size,
+                                 callbacks=[cp_callback],
+                                 validation_data=(valid_data,v_label_ctr),
+                                 validation_freq=1)
+
+
+
+        else:
+            history = self.model.fit(train_data, {"P_r_w":label,"output_2":label_ctr}, 
+                                    epochs=self.epochs, verbose=1,batch_size=self.batch_size,
+                                    callbacks=[cp_callback],
+                                    validation_data=(valid_data,{"P_r_w":v_label,"output_2":v_label_ctr}),
+                                    validation_freq=1)
         # 返回训练的历史评价结果
         # 
         each_epoch=(time()-t0)/self.epochs
@@ -269,8 +354,15 @@ class MuADSE():
         # 配置优化器
         # self.model.compile(optimizer="adam",loss="mean_squared_error",
         #     metrics = [RootMeanSquaredError(), "mean_absolute_error"])
-        self.model.compile(optimizer="adam",loss="mean_squared_error",
-            metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+        if self.task=="rate":
+            self.model.compile(optimizer="adam",loss="mean_squared_error",
+                metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+        elif self.task=="ctr":
+            self.model.compile(optimizer="adam",loss="binary_crossentropy",
+                metrics = ["accuracy",tf.keras.metrics.Recall()])
+        else:
+            self.model.compile(optimizer="adam",loss={"P_r_w":"mean_squared_error","output_2":"binary_crossentropy"},
+                metrics ={ "P_r_w":[RootMeanSquaredError(), "mean_absolute_error"],"output_2":"accuracy"})
 
         # 读取训练数据
         (   user_group_ratings,
@@ -279,7 +371,7 @@ class MuADSE():
             item_group_ratings,
             item_group_intercs,
             item_group_reviews,
-            utext, itext, label) = data_loader.all_train_data_with_group_info(self.group_info)
+            utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
         train_data = {
             "user_group_rating": user_group_ratings,
             "user_group_interc": user_group_intercs,
@@ -297,7 +389,7 @@ class MuADSE():
          v_item_group_ratings,
          v_item_group_intercs,
          v_item_group_reviews,
-         v_utext, v_itext, v_label) = data_loader.eval_with_group_info()
+         v_utext, v_itext, v_label,v_label_ctr) = data_loader.eval_with_group_info()
         # valid_data = {"u_input": v_u_input,
         #               "i_input": v_i_input,
         #               "text": v_text,
@@ -312,7 +404,7 @@ class MuADSE():
                       v_item_group_intercs,
                       v_item_group_reviews,
                       v_utext, v_itext]
-        valid=(valid_data,v_label)
+        valid=(valid_data,v_label,v_label_ctr)
         
         # 训练模型
         # self.model.summary()
@@ -321,8 +413,24 @@ class MuADSE():
         dfs=[]
         for i in range(sub_epoch):
             t0=time()
-            history = self.model.fit(train_data, label, epochs=epoch_size, verbose=1,batch_size=self.batch_size,
-                                    callbacks=[cp_callback],validation_split=0.1, validation_freq=5)
+            if self.task == "rate":
+                history = self.model.fit(train_data, label, 
+                                    epochs=epoch_size, verbose=1,batch_size=self.batch_size,
+                                    callbacks=[cp_callback],
+                                    validation_data=(valid_data,v_label),
+                                    validation_freq=1)
+            elif self.task == "ctr":
+                history = self.model.fit(train_data, label_ctr, 
+                                    epochs=epoch_size, verbose=1,batch_size=self.batch_size,
+                                    callbacks=[cp_callback],
+                                    validation_data=(valid_data,v_label_ctr),
+                                    validation_freq=1)
+            else:
+                history = self.model.fit(train_data, {"P_r_w":label,"output_2":label_ctr}, 
+                                        epochs=self.epochs, verbose=1,batch_size=self.batch_size,
+                                        callbacks=[cp_callback],
+                                        validation_data=(valid_data,{"P_r_w":v_label,"output_2":v_label_ctr}),
+                                        validation_freq=1)
             # 返回训练的历史评价结果
             # 
             each_epoch=(time()-t0)/epoch_size
@@ -351,8 +459,15 @@ class MuADSE():
         # 配置优化器
         # self.model.compile(optimizer="adam",loss="mean_squared_error",
         #     metrics = [RootMeanSquaredError(), "mean_absolute_error"])
-        self.model.compile(optimizer="adam",loss="mean_squared_error",
-            metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+        if self.task=="rate":
+            self.model.compile(optimizer="adam",loss="mean_squared_error",
+                metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+        elif self.task=="ctr":
+            self.model.compile(optimizer="adam",loss="binary_crossentropy",
+                metrics = ["accuracy",tf.keras.metrics.Recall()])
+        else:
+            self.model.compile(optimizer="adam",loss={"layer1P_r_w":"mean_squared_error","output_2":"binary_crossentropy"},
+                metrics ={ "layer1P_r_w":[RootMeanSquaredError(), "mean_absolute_error"],"output_2":["accuracy",tf.keras.metrics.Recall(),tf.keras.metrics.Precision()]})
 
         # 读取训练数据
         (   user_group_ratings,
@@ -361,7 +476,7 @@ class MuADSE():
             item_group_ratings,
             item_group_intercs,
             item_group_reviews,
-            utext, itext, label) = data_loader.all_train_data_with_group_info(self.group_info)
+            utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
         train_data = {
             "user_group_rating": user_group_ratings,
             "user_group_interc": user_group_intercs,
@@ -379,7 +494,7 @@ class MuADSE():
          v_item_group_ratings,
          v_item_group_intercs,
          v_item_group_reviews,
-         v_utext, v_itext, v_label) = data_loader.eval_with_group_info()
+         v_utext, v_itext, v_label,v_label_ctr) = data_loader.eval_with_group_info()
         # valid_data = {"u_input": v_u_input,
         #               "i_input": v_i_input,
         #               "text": v_text,
@@ -394,7 +509,7 @@ class MuADSE():
                       v_item_group_intercs,
                       v_item_group_reviews,
                       v_utext, v_itext]
-        valid=(valid_data,v_label)
+        valid=(valid_data,v_label,v_label_ctr)
         
         # 训练模型
         # self.model.summary()
@@ -405,22 +520,61 @@ class MuADSE():
         for i in range(self.epochs):
             t0=time()
             print("Epoch {}".format(i))
-            history = self.model.fit(train_data, label, epochs=1, verbose=1,batch_size=self.batch_size,
-                                    callbacks=[cp_callback],validation_split=validation_split, validation_freq=5)
+            if self.task == "rate":
+                history = self.model.fit(train_data, label, 
+                                    epochs=1, verbose=1,batch_size=self.batch_size,
+                                    callbacks=[cp_callback],
+                                    validation_data=(valid_data,v_label),
+                                    validation_freq=1)
+            elif self.task == "ctr":
+                history = self.model.fit(train_data, label_ctr, 
+                                    epochs=1, verbose=1,batch_size=self.batch_size,
+                                    callbacks=[cp_callback],
+                                    validation_data=(valid_data,v_label_ctr),
+                                    validation_freq=1)
+            else:
+
+                history = self.model.fit(train_data, {"layer1P_r_w":label,"output_2":label_ctr}, 
+                                        epochs=1, verbose=1,batch_size=self.batch_size,
+                                        callbacks=[cp_callback],
+                                        validation_data=(valid_data,{"layer1P_r_w":v_label,"output_2":v_label_ctr}),
+                                        validation_freq=1)
             # 返回训练的历史评价结果
             # 
             
             trian_times.append(time()-t0)
             t1=time()
-            res.append(self.model.evaluate(valid_data,v_label))
+            if self.task == "rate":
+                res.append(self.model.evaluate(valid_data,v_label))
+            elif self.task == "ctr":
+                res.append(self.model.evaluate(valid_data,v_label_ctr))
+            else:
+                
+                res.append(self.model.evaluate(valid_data,{"layer1P_r_w":v_label,"output_2":v_label_ctr}))
+
             test_times.append(time()-t1) 
             print(res[-1])
-        
-        df = {
-            "val_loss": [i[0] for i in res],
-            "val_root_mean_squared_error":  [i[1] for i in res],
-            "val_mean_absolute_error": [i[2] for i in res],
-        }
+        if self.task == "rate":
+            df = {
+                "val_loss": [i[0] for i in res],
+                "val_root_mean_squared_error":  [i[1] for i in res],
+                "val_mean_absolute_error": [i[2] for i in res],
+            }
+        elif self.task == "ctr":
+            df = {
+                "val_loss": [i[0] for i in res],
+                "val_accuracy":  [i[1] for i in res],
+                "val_recall": [i[2] for i in res],
+            }
+        else:
+            df = {
+                "val_loss": [i[0] for i in res],
+                "val_root_mean_squared_error":  [i[1] for i in res],
+                "val_mean_absolute_error": [i[2] for i in res],
+                "val_accuracy":  [i[3] for i in res],
+                "val_recall": [i[4] for i in res],
+                "val_precision": [i[5] for i in res],
+            }
         print("fit each epoch use {} sec".format(np.mean(trian_times)))
         print("test use {} sec".format(np.mean(test_times)))
         return df

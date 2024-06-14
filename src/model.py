@@ -186,6 +186,8 @@ class ADSE():
         i_rating_latent_fc=self.item_rating_fc(rating_latent)
 
         rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc,u_rating_latent_fc,i_rating_latent_fc)
+        # 加一个sigmoid把r_w_fc转化为概率
+        # r_w_fc = tf.nn.sigmoid(r_w_fc)
 
         model = Model(inputs=[self.user_group_rating,
                               self.user_group_interc,

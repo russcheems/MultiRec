@@ -3,7 +3,7 @@ import os
 import sys
 sys.path.append(".")
 sys.path.append(os.path.dirname(__file__))
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 import pickle
 import pandas as pd
 import tensorflow as tf
@@ -11,9 +11,10 @@ import tensorflow as tf
 from absl import flags as tf_flags
 from model import ADSE
 from GroupDataLoader import GData_Loader
-from untils.build_user_adj_maxtrix import UserSimMatrix
+# from untils.build_user_adj_maxtrix import UserSimMatrix
 import numpy as np
-
+from ExpertTSE import ExpertTSE
+from MuModel import MuADSE
 ReviewShare=4
 IntercShare=8
 RatingShare=12
@@ -27,7 +28,7 @@ def prepare_group_info(data_loader,p,mode=12):
     group_info["num_user_group"]=int(math.sqrt(data_loader.num_user))
     group_info["num_item_group"]=int(math.sqrt(data_loader.num_item))
 
-    sim_path_fmt="sim_res/{}_{}_{}_{}.pkl"
+    sim_path_fmt="/mnt/Disk3/ysq/localFile/TSE/sim_res/{}_{}_{}_{}.pkl"
     
     # 在保存rating分组时发生了命名错误。
     with open(sim_path_fmt.format(p,"rating","os","user"),"rb") as f:
@@ -107,8 +108,11 @@ if __name__=="__main__":
     
     group_info=prepare_group_info(data_loader,p)
     # group_info=prepare_group_info_random(data_loader)
-
-    model=ADSE(flags,data_loader,group_info=group_info)
+    expert = ExpertTSE(flags,data_loader,group_info=group_info,layer = "layer1")
+    expert2 = ExpertTSE(flags,data_loader,group_info=group_info,layer = "layer2")
+    expert3 = ExpertTSE(flags,data_loader,group_info=group_info,layer = "layer3")
+    # model = ADSE(flags,data_loader,group_info=group_info)
+    model=MuADSE(flags,data_loader,group_info=group_info,expert=expert,expert2=expert2,expert3=expert3,task = "ctkr")
 
     model.get_model(summary=True)
     # res=model.train(data_loader)
@@ -133,5 +137,6 @@ if __name__=="__main__":
         if flags.res!="":
             res_Df.to_csv(flags.res,index=False)           
     else:
+        print(flags.epoch_size,"epoch_size error")
         res=model.train_subfit(data_loader,epoch_size=flags.epoch_size)
         print(res)

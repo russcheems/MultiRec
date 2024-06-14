@@ -51,7 +51,7 @@ class ExpertTSE():
     """
     name="DoubleEmbeddingModel2"
 
-    def __init__(self,flags,data_loader,group_info):
+    def __init__(self,flags,data_loader,group_info,layer):
         print("this is group model")
         self.num_class    = flags.num_class
         self.emb_size     = flags.emb_size
@@ -75,6 +75,7 @@ class ExpertTSE():
         self.maxlen     = data_loader.maxlen
         self.data_size  = data_loader.data_size+1
         self.vec_texts  = data_loader.vec_texts # 151255, 60
+        self.layer = layer
         # self.user_group_rating = 0
         # self.item_group_rating = 0
         # self.user_group_review = 0
@@ -132,25 +133,25 @@ class ExpertTSE():
 
         ## 评论级别
         self.user_review_embed = Embedding(
-            self.num_user_group, self.emb_size, name="u_emb")
+            self.num_user_group, self.emb_size, name="u_emb"+self.layer)
         self.item_review_embed = Embedding(
-            self.num_item_group, self.emb_size, name="i_emb")
+            self.num_item_group, self.emb_size, name="i_emb"+self.layer)
         self.u_review_latent = self.user_review_embed(self.user_group_review)
         self.i_review_latent = self.item_review_embed(self.item_group_review)
 
         # # 交互级别
         self.user_interc_embed = Embedding(
-            self.num_user_group, self.emb_size, name="wu_embed")
+            self.num_user_group, self.emb_size, name="wu_embed"+self.layer)
         self.item_interc_embed = Embedding(
-            self.num_item_group, self.emb_size, name="wi_embed")
+            self.num_item_group, self.emb_size, name="wi_embed"+self.layer)
         self.u_interc_latent = self.user_review_embed(self.user_group_interc)
         self.i_interc_latent = self.item_review_embed(self.item_group_interc)
 
         # 评分级别
         self.u_rating = Embedding(
-            self.num_user_group, self.emb_size, name="u_rating")
+            self.num_user_group, self.emb_size, name="u_rating"+self.layer)
         self.i_rating = Embedding(
-            self.num_item_group, self.emb_size, name="i_rating")
+            self.num_item_group, self.emb_size, name="i_rating"+self.layer)
         # Embeddin
         self.u_rating_latent = self.u_rating(self.user_group_rating)
         self.i_rating_latent = self.i_rating(self.item_group_rating)
@@ -192,11 +193,11 @@ class ExpertTSE():
         """
         # assert self.emb_size==self.vec_texts.shape[1],"shape not same"
         # 加载词嵌入-这里使用了glove,且不可训练
-        self.vec_embed = Embedding(self.vec_texts.shape[0],self.vec_texts.shape[1], name="build_w",
+        self.vec_embed = Embedding(self.vec_texts.shape[0],self.vec_texts.shape[1], name="build_w"+self.layer,
                                  trainable=False, weights=[self.vec_texts])
         
         # 1. 这里是个点
-        self.w_embed=Embedding(self.vocab_size,self.emb_size,name="w_emb")
+        self.w_embed=Embedding(self.vocab_size,self.emb_size,name="w_emb"+self.layer)
         self.w_att = Dense(self.emb_size*2, activation = 'tanh')
        
         # 
@@ -261,10 +262,10 @@ class ExpertTSE():
         # for one_dim in layers:
         for i in [3,2,1]:
             one_dim=i*self.emb_size
-            layer=Dense(one_dim,activation="elu",name="Pr_w_{}".format(one_dim))
+            layer=Dense(one_dim,activation="elu",name=self.layer+"Pr_w_{}".format(one_dim))
             self.rd_layers.append(layer)
         Pred = Dense(1, bias_initializer=tf.constant_initializer(2),
-                     activation="elu", name="P_r_w")
+                     activation="elu", name=self.layer+"P_r_w")
         self.rd_layers.append(Pred)
         
     def get_u_rating_latent(self):
@@ -398,7 +399,7 @@ class ExpertTSE():
         for i in [3, 2, 1]:
             one_dim = i*self.emb_size
             self.interc_layers.append(
-                Dense(one_dim, activation="relu", name="predcit_w_{}".format(one_dim)))
+                Dense(one_dim, activation="relu", name=self.layer+"predcit_w_{}".format(one_dim)))
 
     def predict_value_d(self,u_latent,w_u,i_latent,w_i):
         
