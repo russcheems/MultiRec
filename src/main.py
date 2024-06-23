@@ -75,21 +75,21 @@ if __name__=="__main__":
     ]
     prefix = 'amazon_data'
     # filename = os.path.join(prefix,paths[0])
-    filename=paths[0]
+    filename=paths[4]
     flags = tf_flags.FLAGS 	
     tf_flags.DEFINE_string('filename', filename, 'name of file')
     tf_flags.DEFINE_string("res_dir", filename, "name of dir to store result")
     tf_flags.DEFINE_integer('batch_size', 128, 'batch size')
     tf_flags.DEFINE_integer('emb_size', 100, 'embedding size')
     tf_flags.DEFINE_integer('num_class', 5, "num of classes")
-    tf_flags.DEFINE_integer('epoch', 20, 'epochs for training')
+    tf_flags.DEFINE_integer('epoch',20, 'epochs for training')
     tf_flags.DEFINE_string('ckpt_dir', os.path.join(
         "CKPT_DIR", "HTI_"+filename.split('.')[0]), 'directory of checkpoint')
     tf_flags.DEFINE_string('train_test', 'train', 'training or test')
     tf_flags.DEFINE_string("glovepath", "glove", "glove path")
     tf_flags.DEFINE_string("res_path", "res/res.csv", "save predict res")
     tf_flags.DEFINE_float('test_size', "0.2", "set test size to split data")
-    tf_flags.DEFINE_string('res', "", "res path to save")
+    tf_flags.DEFINE_string('res', "/mnt/Disk3/ysq/localFile/TSE/res/output_ctr_test_1.csv", "res path to save")
     tf_flags.DEFINE_integer('mode', -1, "2,4,8表示三种层次的共享")
     tf_flags.DEFINE_integer('doc_layers', 3, "doc层注意力的层数")
     tf_flags.DEFINE_float('doc_dropout', .3, "doc层注意力的层数")
@@ -112,7 +112,7 @@ if __name__=="__main__":
     expert2 = ExpertTSE(flags,data_loader,group_info=group_info,layer = "layer2")
     expert3 = ExpertTSE(flags,data_loader,group_info=group_info,layer = "layer3")
     # model = ADSE(flags,data_loader,group_info=group_info)
-    model=MuADSE(flags,data_loader,group_info=group_info,expert=expert,expert2=expert2,expert3=expert3,task = "ctkr")
+    model=MuADSE(flags,data_loader,group_info=group_info,expert=expert,expert2=expert2,expert3=expert3,task = "ctsr")
 
     model.get_model(summary=True)
     # res=model.train(data_loader)

@@ -11,7 +11,7 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.layers as K_layers
-from tensorflow.keras.layers import (Conv1D, Dense, Embedding, Input,Layer,
+from tensorflow.keras.layers import (Conv1D, Dense, Embedding, Input,Layer,Add,
                                      concatenate)
 from tensorflow.keras.metrics import RootMeanSquaredError
 from tensorflow.python.keras import Model
@@ -178,16 +178,41 @@ class MuADSE():
                                         self.user_group_interc,
                                         self.item_group_interc,self.utext,self.itext)
             
-            # 使用Average融合pred_fc和pred_fc_share
-            pred_fc = keras.layers.Average()([pred_fc,pred_fc_share])
-            pred_fc_ctr = keras.layers.Average()([pred_fc_ctr,pred_fc_share])
+            # 使用MLP建模rating和ctr之间的线性关系
+            concat_input = concatenate([pred_fc,pred_fc_ctr])
+            hidden_layer = Dense(128, activation='relu')(concat_input)
+            hidden_layer = Dense(64, activation='relu')(hidden_layer)
+            pred_fc_linear = Dense(1)(hidden_layer)
 
+            weight1 = 0.5
+            weight2 = 0.5
 
+            pred_fc_fused = Add()([weight1 * pred_fc, weight2 * pred_fc_share])
+            pred_fc_ctr_fused = Add()([weight1 * pred_fc_ctr, weight2 * pred_fc_share])
+            # pred_fc_fused = keras.layers.Average()([pred_fc,pred_fc_share])
+            # pred_fc_ctr_fused = keras.layers.Average()([pred_fc_ctr,pred_fc_share])
 
-            rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc,u_rating_latent_fc,i_rating_latent_fc,expert=self.expert1)
-            ctr_latent_fc,r_w_fc_ctr=self.predict_by_d(pred_fc_ctr,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr,expert=self.expert3)
+            # 点乘
+            pred_fc_dot = keras.layers.Dot(axes=1)([pred_fc,pred_fc_share])
+
+            # final的输出等于fused和doth和adjust的加权和，权重分别设置为0.3,0.4,0.3
+            pred_fc_final = 0.2*pred_fc_fused+0.8*pred_fc_dot + 0.15*pred_fc_linear
+            pred_fc_ctr_final = 0.2*pred_fc_ctr_fused+0.8*pred_fc_dot+0.15*pred_fc_linear
+
+            rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc_final,u_rating_latent_fc,i_rating_latent_fc,expert=self.expert1)
+            ctr_latent_fc,r_w_fc_ctr=self.predict_by_d(pred_fc_ctr_final,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr,expert=self.expert3)
             #ctr的输出加一个sigmoid，该层名字为output_2
             r_w_fc_ctr = Dense(1,activation="sigmoid",name="output_2")(r_w_fc_ctr)
+
+
+            # preModel = Model(inputs=[self.user_group_rating,
+            #                         self.user_group_interc,
+            #                         self.user_group_review,
+            #                         self.item_group_rating,
+            #                         self.item_group_interc,
+            #                         self.item_group_review,
+            #                         self.utext, self.itext],
+            #                 outputs=[r_w_fc])
 
             model = Model(inputs=[self.user_group_rating,
                                 self.user_group_interc,
@@ -199,6 +224,7 @@ class MuADSE():
                         outputs=[r_w_fc,r_w_fc_ctr])
 
         self.model = model
+        # self.preModel = preModel
 
         if summary:
             model.summary()
@@ -414,6 +440,7 @@ class MuADSE():
         for i in range(sub_epoch):
             t0=time()
             if self.task == "rate":
+                print_callback = PrintTrueAndPredictedValues(validation_data=(valid_data, v_label))
                 history = self.model.fit(train_data, label, 
                                     epochs=epoch_size, verbose=1,batch_size=self.batch_size,
                                     callbacks=[cp_callback],
@@ -464,10 +491,18 @@ class MuADSE():
                 metrics = [RootMeanSquaredError(), "mean_absolute_error"])
         elif self.task=="ctr":
             self.model.compile(optimizer="adam",loss="binary_crossentropy",
-                metrics = ["accuracy",tf.keras.metrics.Recall()])
+                metrics = ["accuracy",tf.keras.metrics.Recall(),tf.keras.metrics.Precision()])
         else:
-            self.model.compile(optimizer="adam",loss={"layer1P_r_w":"mean_squared_error","output_2":"binary_crossentropy"},
-                metrics ={ "layer1P_r_w":[RootMeanSquaredError(), "mean_absolute_error"],"output_2":["accuracy",tf.keras.metrics.Recall(),tf.keras.metrics.Precision()]})
+            # 先使用前一半数据进行一个预训练
+            self.model.compile(
+                optimizer="adam",
+                loss={"layer1P_r_w": "mean_squared_error", "output_2": "binary_crossentropy"},
+                metrics={
+                    "layer1P_r_w": [RootMeanSquaredError(), "mean_absolute_error"],
+                    "output_2": ["accuracy", tf.keras.metrics.Recall(), tf.keras.metrics.Precision()]
+                },
+                loss_weights={"layer1P_r_w": 1, "output_2": 1}  
+            )
 
         # 读取训练数据
         (   user_group_ratings,
@@ -521,15 +556,21 @@ class MuADSE():
             t0=time()
             print("Epoch {}".format(i))
             if self.task == "rate":
+                # print_callback = PrintTrueAndPredictedValues(validation_data=(valid_data, v_label))
                 history = self.model.fit(train_data, label, 
-                                    epochs=1, verbose=1,batch_size=self.batch_size,
-                                    callbacks=[cp_callback],
+                                    epochs=1, verbose=1,batch_size=self.batch_size,   
+                                    callbacks=[cp_callback
+                                            #    , print_callback
+                                               ],
                                     validation_data=(valid_data,v_label),
                                     validation_freq=1)
             elif self.task == "ctr":
+                # print_callback = PrintTrueAndPredictedValues(validation_data=(valid_data, v_label_ctr))
                 history = self.model.fit(train_data, label_ctr, 
                                     epochs=1, verbose=1,batch_size=self.batch_size,
-                                    callbacks=[cp_callback],
+                                    callbacks=[cp_callback
+                                            #    , print_callback
+                                               ],
                                     validation_data=(valid_data,v_label_ctr),
                                     validation_freq=1)
             else:
@@ -549,8 +590,18 @@ class MuADSE():
             elif self.task == "ctr":
                 res.append(self.model.evaluate(valid_data,v_label_ctr))
             else:
-                
                 res.append(self.model.evaluate(valid_data,{"layer1P_r_w":v_label,"output_2":v_label_ctr}))
+                y_pred_rate = self.model.predict(valid_data)[0]
+                mae = custom_mae(v_label,y_pred_rate)
+                rmse = custom_rmse(v_label,y_pred_rate)
+                # 在res后面再加两列
+                res[-1].append(mae)
+                res[-1].append(rmse)
+
+
+
+                
+
 
             test_times.append(time()-t1) 
             print(res[-1])
@@ -565,20 +616,57 @@ class MuADSE():
                 "val_loss": [i[0] for i in res],
                 "val_accuracy":  [i[1] for i in res],
                 "val_recall": [i[2] for i in res],
+                "val_precision": [i[3] for i in res],
             }
         else:
             df = {
                 "val_loss": [i[0] for i in res],
-                "val_root_mean_squared_error":  [i[1] for i in res],
-                "val_mean_absolute_error": [i[2] for i in res],
-                "val_accuracy":  [i[3] for i in res],
-                "val_recall": [i[4] for i in res],
-                "val_precision": [i[5] for i in res],
+                "val_root_mean_squared_error_loss":  [i[1] for i in res],
+                "val_CTR_loss": [i[2] for i in res],
+                "val_rmse": [i[3] for i in res],
+                "val_real_rmse": [i[9] for i in res],
+                "val_mae": [i[4] for i in res],
+                "val_real_mae": [i[8] for i in res],
+
+
+                "val_accuracy":  [i[5] for i in res],
+                "val_recall": [i[6] for i in res],
+                "val_precision": [i[7] for i in res],
+
             }
         print("fit each epoch use {} sec".format(np.mean(trian_times)))
         print("test use {} sec".format(np.mean(test_times)))
         return df
 
+
+
+# 自定义一个mae计算，在计算时，y_true，y_pred均只要前1/2的数据
+def custom_mae(y_true,y_pred):
+    y_pred = y_pred[:int(y_pred.shape[0]/2)]
+    y_true = y_true[:int(y_true.shape[0]/2)]
+    return np.mean(np.abs(y_true-y_pred))
+
+# 自定义一个rmse计算，在计算时，y_true，y_pred均只要前1/2的数据
+def custom_rmse(y_true,y_pred):
+    y_pred = y_pred[:int(y_pred.shape[0]/2)]
+    y_true = y_true[:int(y_true.shape[0]/2)]
+    return np.sqrt(np.mean(np.square(y_true-y_pred)))
+
+
+
+class PrintTrueAndPredictedValues(tf.keras.callbacks.Callback):
+    def __init__(self, validation_data):
+        super(PrintTrueAndPredictedValues, self).__init__()
+        self.validation_data = validation_data
+
+    def on_epoch_end(self, epoch, logs=None):
+        x_val, y_val = self.validation_data
+        predictions = self.model.predict(x_val)
+
+        print("------>Epoch: {}".format(epoch + 1))
+        print("------>Predictions:")
+        for i in range(len(predictions)):
+            print("------>Validation Sample {}: Predicted: {}, True Label: {}".format(i, predictions[i][0], y_val[i]))
 
 if __name__=="__main__":
     print("hello,this is a work of RS")
