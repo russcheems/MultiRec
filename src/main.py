@@ -75,7 +75,7 @@ if __name__=="__main__":
     ]
     prefix = 'amazon_data'
     # filename = os.path.join(prefix,paths[0])
-    filename=paths[4]
+    filename=paths[0]
     flags = tf_flags.FLAGS 	
     tf_flags.DEFINE_string('filename', filename, 'name of file')
     tf_flags.DEFINE_string("res_dir", filename, "name of dir to store result")
@@ -89,7 +89,7 @@ if __name__=="__main__":
     tf_flags.DEFINE_string("glovepath", "glove", "glove path")
     tf_flags.DEFINE_string("res_path", "res/res.csv", "save predict res")
     tf_flags.DEFINE_float('test_size', "0.2", "set test size to split data")
-    tf_flags.DEFINE_string('res', "/mnt/Disk3/ysq/localFile/TSE/res/output_ctr_test_1.csv", "res path to save")
+    tf_flags.DEFINE_string('res', "/mnt/Disk3/ysq/localFile/TSE/res/temp.csv", "res path to save")
     tf_flags.DEFINE_integer('mode', -1, "2,4,8表示三种层次的共享")
     tf_flags.DEFINE_integer('doc_layers', 3, "doc层注意力的层数")
     tf_flags.DEFINE_float('doc_dropout', .3, "doc层注意力的层数")

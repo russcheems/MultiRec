@@ -205,14 +205,14 @@ class MuADSE():
             r_w_fc_ctr = Dense(1,activation="sigmoid",name="output_2")(r_w_fc_ctr)
 
 
-            # preModel = Model(inputs=[self.user_group_rating,
-            #                         self.user_group_interc,
-            #                         self.user_group_review,
-            #                         self.item_group_rating,
-            #                         self.item_group_interc,
-            #                         self.item_group_review,
-            #                         self.utext, self.itext],
-            #                 outputs=[r_w_fc])
+            premodel = Model(inputs=[self.user_group_rating,
+                                    self.user_group_interc,
+                                    self.user_group_review,
+                                    self.item_group_rating,
+                                    self.item_group_interc,
+                                    self.item_group_review,
+                                    self.utext, self.itext],
+                            outputs=[r_w_fc])
 
             model = Model(inputs=[self.user_group_rating,
                                 self.user_group_interc,
@@ -224,7 +224,7 @@ class MuADSE():
                         outputs=[r_w_fc,r_w_fc_ctr])
 
         self.model = model
-        # self.preModel = preModel
+        self.premodel = premodel
 
         if summary:
             model.summary()
@@ -494,6 +494,70 @@ class MuADSE():
                 metrics = ["accuracy",tf.keras.metrics.Recall(),tf.keras.metrics.Precision()])
         else:
             # 先使用前一半数据进行一个预训练
+            self.premodel.compile(optimizer="adam",loss="mean_squared_error",
+                metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+            (   user_group_ratings,
+                user_group_intercs,
+                user_group_reviews,
+                item_group_ratings,
+                item_group_intercs,
+                item_group_reviews,
+                utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
+            
+            train_data = {
+                "user_group_rating": user_group_ratings,
+                "user_group_interc": user_group_intercs,
+                "user_group_review": user_group_reviews,
+                "item_group_rating": item_group_ratings,
+                "item_group_interc": item_group_intercs,
+                "item_group_review": item_group_reviews,
+                "utext": utext,
+                "itext": itext
+            }
+
+            (v_user_group_ratings,
+            v_user_group_intercs,
+            v_user_group_reviews,
+            v_item_group_ratings,
+            v_item_group_intercs,
+            v_item_group_reviews,
+            v_utext, v_itext, v_label,v_label_ctr) = data_loader.eval_with_group_info()
+            # valid_data = {"u_input": v_u_input,
+            #               "i_input": v_i_input,
+            #               "text": v_text,
+            #               "utext": v_utext,
+            #               "itext": v_itext
+            #               }
+
+            valid_data = [v_user_group_ratings,
+                        v_user_group_intercs,
+                        v_user_group_reviews,
+                        v_item_group_ratings,
+                        v_item_group_intercs,
+                        v_item_group_reviews,
+                        v_utext, v_itext]
+            valid=(valid_data,v_label,v_label_ctr)
+            
+
+            pre_train_data = {
+                "user_group_rating": user_group_ratings[:int(len(label)/2)],
+                "user_group_interc": user_group_intercs[:int(len(label)/2)],
+                "user_group_review": user_group_reviews[:int(len(label)/2)],
+                "item_group_rating": item_group_ratings[:int(len(label)/2)],
+                "item_group_interc": item_group_intercs[:int(len(label)/2)],
+                "item_group_review": item_group_reviews[:int(len(label)/2)],
+                "utext": utext[:int(len(label)/2)],
+                "itext": itext[:int(len(label)/2)]
+            }
+            self.premodel.fit(pre_train_data, label[:int(len(label)/2)], 
+                                    epochs=20, verbose=1,batch_size=self.batch_size,
+                                    callbacks=[cp_callback],
+                                    validation_data=(valid_data,v_label),
+                                    validation_freq=1)
+            # 拿到预测的结果
+            pred_r = self.premodel.predict(train_data)
+            # 把原始train_data的label替换成预测的结果
+            label = pred_r
             self.model.compile(
                 optimizer="adam",
                 loss={"layer1P_r_w": "mean_squared_error", "output_2": "binary_crossentropy"},
@@ -505,46 +569,14 @@ class MuADSE():
             )
 
         # 读取训练数据
-        (   user_group_ratings,
-            user_group_intercs,
-            user_group_reviews,
-            item_group_ratings,
-            item_group_intercs,
-            item_group_reviews,
-            utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
-        train_data = {
-            "user_group_rating": user_group_ratings,
-            "user_group_interc": user_group_intercs,
-            "user_group_review": user_group_reviews,
-            "item_group_rating": item_group_ratings,
-            "item_group_interc": item_group_intercs,
-            "item_group_review": item_group_reviews,
-            "utext": utext,
-            "itext": itext
-        }
+        # (   user_group_ratings,
+        #     user_group_intercs,
+        #     user_group_reviews,
+        #     item_group_ratings,
+        #     item_group_intercs,
+        #     item_group_reviews,
+        #     utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
 
-        (v_user_group_ratings,
-         v_user_group_intercs,
-         v_user_group_reviews,
-         v_item_group_ratings,
-         v_item_group_intercs,
-         v_item_group_reviews,
-         v_utext, v_itext, v_label,v_label_ctr) = data_loader.eval_with_group_info()
-        # valid_data = {"u_input": v_u_input,
-        #               "i_input": v_i_input,
-        #               "text": v_text,
-        #               "utext": v_utext,
-        #               "itext": v_itext
-        #               }
-
-        valid_data = [v_user_group_ratings,
-                      v_user_group_intercs,
-                      v_user_group_reviews,
-                      v_item_group_ratings,
-                      v_item_group_intercs,
-                      v_item_group_reviews,
-                      v_utext, v_itext]
-        valid=(valid_data,v_label,v_label_ctr)
         
         # 训练模型
         # self.model.summary()
@@ -667,6 +699,29 @@ class PrintTrueAndPredictedValues(tf.keras.callbacks.Callback):
         print("------>Predictions:")
         for i in range(len(predictions)):
             print("------>Validation Sample {}: Predicted: {}, True Label: {}".format(i, predictions[i][0], y_val[i]))
+
+class FM_Layer(tf.keras.layers.Layer):
+    def __init__(self, args, config):
+        super(FM_Layer, self).__init__()
+        input_dim = (args.num_layers + 1) * args.dim * 2
+        self.linear = tf.keras.layers.Dense(1, use_bias=False)
+        self.V = self.add_weight(shape=(input_dim, input_dim), initializer='zeros', trainable=True)
+        self.bias_u = self.add_weight(shape=(config['n_users'],), initializer='zeros', trainable=True)
+        self.bias_i = self.add_weight(shape=(config['n_items'],), initializer='zeros', trainable=True)
+        self.bias = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(value=3), trainable=False)
+
+    def fm_layer(self, user_em, item_em, uid, iid):
+        x = tf.concat((user_em, item_em), -1)[None, :]
+        linear_part = self.linear(x)
+        interaction_part_1 = tf.pow(tf.linalg.matmul(x, self.V), 2)
+        interaction_part_2 = tf.linalg.matmul(tf.pow(x, 2), tf.pow(self.V, 2))
+        mlp_output = 0.5 * tf.reduce_sum(interaction_part_1 - interaction_part_2, axis=1)
+        rate = linear_part + mlp_output + self.bias_u[uid] + self.bias_i[iid] + self.bias
+        return rate
+
+    def call(self, user_em, item_em, uid, iid):
+        return self.fm_layer(user_em, item_em, uid, iid)
+
 
 if __name__=="__main__":
     print("hello,this is a work of RS")
