@@ -85,6 +85,7 @@ class MuADSE():
 
         self.ckpt_dir=os.path.join(flags.ckpt_dir,self.name) 
     
+
     def init_input(self):
 
         self.utext     = Input(name="utext", dtype=tf.int32, shape=self.t_num)
@@ -177,12 +178,18 @@ class MuADSE():
                                         self.item_group_review,
                                         self.user_group_interc,
                                         self.item_group_interc,self.utext,self.itext)
-            
+
             # 使用MLP建模rating和ctr之间的线性关系
             concat_input = concatenate([pred_fc,pred_fc_ctr])
             hidden_layer = Dense(128, activation='relu')(concat_input)
             hidden_layer = Dense(64, activation='relu')(hidden_layer)
             pred_fc_linear = Dense(1)(hidden_layer)
+            # 使用FM建模rating和ctr之间的线性关系
+            # input_dim = pred_fc.shape[-1] + pred_fc_ctr.shape[-1]
+            # concat_input = concatenate([pred_fc, pred_fc_ctr])
+
+            # fm_layer = FMLayer(input_dim)
+            # pred_fc_linear = fm_layer(concat_input)
 
             weight1 = 0.5
             weight2 = 0.5
@@ -196,8 +203,8 @@ class MuADSE():
             pred_fc_dot = keras.layers.Dot(axes=1)([pred_fc,pred_fc_share])
 
             # final的输出等于fused和doth和adjust的加权和，权重分别设置为0.3,0.4,0.3
-            pred_fc_final = 0.2*pred_fc_fused+0.8*pred_fc_dot + 0.15*pred_fc_linear
-            pred_fc_ctr_final = 0.2*pred_fc_ctr_fused+0.8*pred_fc_dot+0.15*pred_fc_linear
+            pred_fc_final = 1*pred_fc_fused+1*pred_fc_dot +1*pred_fc_linear
+            pred_fc_ctr_final = 1*pred_fc_ctr_fused+1*pred_fc_dot+1*pred_fc_linear
 
             rating_latent_fc,r_w_fc=self.predict_by_d(pred_fc_final,u_rating_latent_fc,i_rating_latent_fc,expert=self.expert1)
             ctr_latent_fc,r_w_fc_ctr=self.predict_by_d(pred_fc_ctr_final,u_rating_latent_fc_ctr,i_rating_latent_fc_ctr,expert=self.expert3)
@@ -222,9 +229,13 @@ class MuADSE():
                                 self.item_group_review,
                                 self.utext, self.itext],
                         outputs=[r_w_fc,r_w_fc_ctr])
-
+            self.premodel = premodel
+        # model.load_weights("/mnt/Disk3/ysq/localFile/CKPT_DIR/CTRSOHTI_Sports_and_Outdoors_5/DoubleEmbeddingModel2/DoubleEmbeddingModel2.h5", by_name=True)
+        # print("load success")
+        # model.load_weights("/mnt/Disk3/ysq/localFile/CKPT_DIR/RATESOHTI_Sports_and_Outdoors_5/DoubleEmbeddingModel2/DoubleEmbeddingModel2.h5", by_name=True)
+        print("load success")
         self.model = model
-        self.premodel = premodel
+
 
         if summary:
             model.summary()
@@ -481,14 +492,15 @@ class MuADSE():
             os.makedirs(checkpoint_dir)
         # 通过回调进行保存
         cp_callback = keras.callbacks.ModelCheckpoint(
-            checkpoint_path, monitor="mean_absolute_error",
+            checkpoint_path, monitor="accuracy",
             save_best_only=True, verbose=1, save_weights_only=True, period=1)
+        
         # 配置优化器
         # self.model.compile(optimizer="adam",loss="mean_squared_error",
         #     metrics = [RootMeanSquaredError(), "mean_absolute_error"])
         if self.task=="rate":
             self.model.compile(optimizer="adam",loss="mean_squared_error",
-                metrics = [RootMeanSquaredError(), "mean_absolute_error"])
+                metrics = [RootMeanSquaredError(), "mean_absolute_error","mean_squared_error"])
         elif self.task=="ctr":
             self.model.compile(optimizer="adam",loss="binary_crossentropy",
                 metrics = ["accuracy",tf.keras.metrics.Recall(),tf.keras.metrics.Precision()])
@@ -539,31 +551,34 @@ class MuADSE():
             valid=(valid_data,v_label,v_label_ctr)
             
 
+            ratio = 2
             pre_train_data = {
-                "user_group_rating": user_group_ratings[:int(len(label)/2)],
-                "user_group_interc": user_group_intercs[:int(len(label)/2)],
-                "user_group_review": user_group_reviews[:int(len(label)/2)],
-                "item_group_rating": item_group_ratings[:int(len(label)/2)],
-                "item_group_interc": item_group_intercs[:int(len(label)/2)],
-                "item_group_review": item_group_reviews[:int(len(label)/2)],
-                "utext": utext[:int(len(label)/2)],
-                "itext": itext[:int(len(label)/2)]
+                "user_group_rating": user_group_ratings[:int(len(label)/ratio)],
+                "user_group_interc": user_group_intercs[:int(len(label)/ratio)],  
+                "user_group_review": user_group_reviews[:int(len(label)/ratio)],
+                "item_group_rating": item_group_ratings[:int(len(label)/ratio)],
+                "item_group_interc": item_group_intercs[:int(len(label)/ratio)],
+                "item_group_review": item_group_reviews[:int(len(label)/ratio)],
+                "utext": utext[:int(len(label)/ratio)],
+                "itext": itext[:int(len(label)/ratio)]
             }
-            self.premodel.fit(pre_train_data, label[:int(len(label)/2)], 
+            self.premodel.fit(pre_train_data, label[:int(len(label)/ratio)], 
                                     epochs=20, verbose=1,batch_size=self.batch_size,
                                     callbacks=[cp_callback],
                                     validation_data=(valid_data,v_label),
                                     validation_freq=1)
+            self.premodel.save_weights(checkpoint_path)
             # 拿到预测的结果
+            # self.premodel.load_weights("/mnt/Disk3/ysq/localFile/CKPT_DIR/RATESOHTI_Sports_and_Outdoors_5/DoubleEmbeddingModel2/DoubleEmbeddingModel2.h5")
             pred_r = self.premodel.predict(train_data)
             # 把原始train_data的label替换成预测的结果
-            label = pred_r
+            label[int(len(label)/ratio):] = pred_r[int(len(label)/ratio):]
             self.model.compile(
                 optimizer="adam",
                 loss={"layer1P_r_w": "mean_squared_error", "output_2": "binary_crossentropy"},
                 metrics={
                     "layer1P_r_w": [RootMeanSquaredError(), "mean_absolute_error"],
-                    "output_2": ["accuracy", tf.keras.metrics.Recall(), tf.keras.metrics.Precision()]
+                    "output_2": ["accuracy", tf.keras.metrics.Recall(thresholds=0.5), tf.keras.metrics.Precision(thresholds=0.5)]
                 },
                 loss_weights={"layer1P_r_w": 1, "output_2": 1}  
             )
@@ -580,7 +595,47 @@ class MuADSE():
         
         # 训练模型
         # self.model.summary()
-        
+        # (   user_group_ratings,
+        #         user_group_intercs,
+        #         user_group_reviews,
+        #         item_group_ratings,
+        #         item_group_intercs,
+        #         item_group_reviews,
+        #         utext, itext, label,label_ctr) = data_loader.all_train_data_with_group_info(self.group_info)
+            
+        # train_data = {
+        #         "user_group_rating": user_group_ratings,
+        #         "user_group_interc": user_group_intercs,
+        #         "user_group_review": user_group_reviews,
+        #         "item_group_rating": item_group_ratings,
+        #         "item_group_interc": item_group_intercs,
+        #         "item_group_review": item_group_reviews,
+        #         "utext": utext,
+        #         "itext": itext
+        #     }
+
+        # (v_user_group_ratings,
+        # v_user_group_intercs,
+        # v_user_group_reviews,
+        # v_item_group_ratings,
+        # v_item_group_intercs,
+        # v_item_group_reviews,
+        # v_utext, v_itext, v_label,v_label_ctr) = data_loader.eval_with_group_info()
+        # valid_data = {"u_input": v_u_input,
+        #               "i_input": v_i_input,
+        #               "text": v_text,
+        #               "utext": v_utext,
+        #               "itext": v_itext
+        #               }
+
+        # valid_data = [v_user_group_ratings,
+        #             v_user_group_intercs,
+        #             v_user_group_reviews,
+        #             v_item_group_ratings,
+        #             v_item_group_intercs,
+        #             v_item_group_reviews,
+        #             v_utext, v_itext]
+        # valid=(valid_data,v_label,v_label_ctr)
         res=[]
         trian_times=[]
         test_times=[]
@@ -609,7 +664,9 @@ class MuADSE():
 
                 history = self.model.fit(train_data, {"layer1P_r_w":label,"output_2":label_ctr}, 
                                         epochs=1, verbose=1,batch_size=self.batch_size,
-                                        callbacks=[cp_callback],
+                                        callbacks=[cp_callback,
+                                                #    PrintTrueAndPredictedValues(validation_data=(valid_data, v_label_ctr))
+                                                   ],
                                         validation_data=(valid_data,{"layer1P_r_w":v_label,"output_2":v_label_ctr}),
                                         validation_freq=1)
             # 返回训练的历史评价结果
@@ -697,30 +754,51 @@ class PrintTrueAndPredictedValues(tf.keras.callbacks.Callback):
 
         print("------>Epoch: {}".format(epoch + 1))
         print("------>Predictions:")
-        for i in range(len(predictions)):
-            print("------>Validation Sample {}: Predicted: {}, True Label: {}".format(i, predictions[i][0], y_val[i]))
+        for i in range(0,len(predictions[0]),30):
+            # 这里注意，我既有评分预测也有ctr预测，所以predictions有两个输出，不能直接用len(predictions)，要用len(predictions[0])
+            print("------>True: {}, Predicted: {},ctr:_true{},ctr_pred{}".format(y_val[i], predictions[1][i],y_val[i],predictions[0][i]))
+        res = acc(y_val, predictions[1])
+        print("------>Accuracy: {}, Precision: {}, Recall: {}".format(res[0], res[1], res[2]))
+        # res_2 = mae(y_val, predictions[0])
+        # print("mae,mse",res_2[0],res_2[1])
 
-class FM_Layer(tf.keras.layers.Layer):
-    def __init__(self, args, config):
-        super(FM_Layer, self).__init__()
-        input_dim = (args.num_layers + 1) * args.dim * 2
-        self.linear = tf.keras.layers.Dense(1, use_bias=False)
-        self.V = self.add_weight(shape=(input_dim, input_dim), initializer='zeros', trainable=True)
-        self.bias_u = self.add_weight(shape=(config['n_users'],), initializer='zeros', trainable=True)
-        self.bias_i = self.add_weight(shape=(config['n_items'],), initializer='zeros', trainable=True)
-        self.bias = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(value=3), trainable=False)
+        # for i in range(len(predictions)):
+        #     print("------>Validation Sample {}: Predicted: {}, True Label: {}".format(i, predictions[i][0], y_val[i]))
 
-    def fm_layer(self, user_em, item_em, uid, iid):
-        x = tf.concat((user_em, item_em), -1)[None, :]
-        linear_part = self.linear(x)
-        interaction_part_1 = tf.pow(tf.linalg.matmul(x, self.V), 2)
-        interaction_part_2 = tf.linalg.matmul(tf.pow(x, 2), tf.pow(self.V, 2))
-        mlp_output = 0.5 * tf.reduce_sum(interaction_part_1 - interaction_part_2, axis=1)
-        rate = linear_part + mlp_output + self.bias_u[uid] + self.bias_i[iid] + self.bias
-        return rate
+class FMLayer(tf.keras.layers.Layer):
+    def __init__(self, input_dim):
+        super(FMLayer, self).__init__()
+        self.input_dim = input_dim
+        self.V = tf.Variable(tf.random.normal(shape=(input_dim, 1), stddev=0.01), name='V')
 
-    def call(self, user_em, item_em, uid, iid):
-        return self.fm_layer(user_em, item_em, uid, iid)
+    def call(self, inputs):
+        linear_terms = tf.matmul(inputs, self.V)
+        
+        interactions = 0.5 * tf.reduce_sum(
+            tf.pow(tf.matmul(inputs, self.V), 2) - tf.matmul(tf.pow(inputs, 2), tf.pow(self.V, 2)), axis=1, keepdims=True)
+        
+        output = linear_terms + interactions
+        return output
+
+
+def acc(y_true, y_pred):
+    tp = 0
+    tn = 0
+    fp = 0
+    fn = 0
+    for i in range(len(y_true)):
+        if y_true[i] == 1 and y_pred[i] > 0.5:
+            tp += 1
+        elif y_true[i] == 1 and y_pred[i]  < 0.5:
+            fn += 1
+        elif y_true[i] == 0 and y_pred[i] > 0.5:
+            fp += 1
+        else:
+            tn += 1
+    acc = (tp + tn) / (tp + tn + fp + fn)
+    p = tp / (tp + fp)
+    r = tp / (tp + fn)
+    return acc, p, r
 
 
 if __name__=="__main__":

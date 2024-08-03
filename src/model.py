@@ -661,7 +661,7 @@ class ADSE():
             item_group_ratings,
             item_group_intercs,
             item_group_reviews,
-            utext, itext, label) = data_loader.all_train_data_with_group_info(self.group_info)
+            utext, itext, label,ctr) = data_loader.all_train_data_with_group_info(self.group_info)
         train_data = {
             "user_group_rating": user_group_ratings,
             "user_group_interc": user_group_intercs,
@@ -679,7 +679,7 @@ class ADSE():
          v_item_group_ratings,
          v_item_group_intercs,
          v_item_group_reviews,
-         v_utext, v_itext, v_label) = data_loader.eval_with_group_info()
+         v_utext, v_itext, v_label,v_ctr) = data_loader.eval_with_group_info()
         # valid_data = {"u_input": v_u_input,
         #               "i_input": v_i_input,
         #               "text": v_text,

@@ -83,7 +83,6 @@ class ExpertTSE():
         # self.user_group_interc = 0
         # self.item_group_interc = 0
         
-
         self.ckpt_dir=os.path.join(flags.ckpt_dir,self.name) 
 
 
@@ -456,3 +455,16 @@ class ExpertTSE():
         pred = Dense(1, name="P_r_uiw")(layer)
 
         return pred
+
+
+    def save_weights(self, prefix):
+        for name, attr in vars(self).items():
+            if isinstance(attr, tf.keras.layers.Layer):
+                attr_weights = attr.get_weights()
+                np.save(f'{prefix}_{name}.npy', attr_weights)
+
+    def load_weights(self, prefix):
+        for name, attr in vars(self).items():
+            if isinstance(attr, tf.keras.layers.Layer):
+                attr_weights = np.load(f'{prefix}_{name}.npy', allow_pickle=True)
+                attr.set_weights(attr_weights)
