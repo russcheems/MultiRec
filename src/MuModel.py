@@ -551,7 +551,7 @@ class MuADSE():
             valid=(valid_data,v_label,v_label_ctr)
             
 
-            ratio = 2
+            ratio =3
             pre_train_data = {
                 "user_group_rating": user_group_ratings[:int(len(label)/ratio)],
                 "user_group_interc": user_group_intercs[:int(len(label)/ratio)],  
@@ -665,7 +665,7 @@ class MuADSE():
                 history = self.model.fit(train_data, {"layer1P_r_w":label,"output_2":label_ctr}, 
                                         epochs=1, verbose=1,batch_size=self.batch_size,
                                         callbacks=[cp_callback,
-                                                #    PrintTrueAndPredictedValues(validation_data=(valid_data, v_label_ctr))
+                                                   PrintTrueAndPredictedValues(validation_data=(valid_data, v_label_ctr))
                                                    ],
                                         validation_data=(valid_data,{"layer1P_r_w":v_label,"output_2":v_label_ctr}),
                                         validation_freq=1)
@@ -731,14 +731,14 @@ class MuADSE():
 
 # 自定义一个mae计算，在计算时，y_true，y_pred均只要前1/2的数据
 def custom_mae(y_true,y_pred):
-    y_pred = y_pred[:int(y_pred.shape[0]/2)]
-    y_true = y_true[:int(y_true.shape[0]/2)]
+    y_pred = y_pred[:int(y_pred.shape[0]/3)]
+    y_true = y_true[:int(y_true.shape[0]/3)]
     return np.mean(np.abs(y_true-y_pred))
 
 # 自定义一个rmse计算，在计算时，y_true，y_pred均只要前1/2的数据
 def custom_rmse(y_true,y_pred):
-    y_pred = y_pred[:int(y_pred.shape[0]/2)]
-    y_true = y_true[:int(y_true.shape[0]/2)]
+    y_pred = y_pred[:int(y_pred.shape[0]/3)]
+    y_true = y_true[:int(y_true.shape[0]/3)]
     return np.sqrt(np.mean(np.square(y_true-y_pred)))
 
 

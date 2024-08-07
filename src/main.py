@@ -94,12 +94,12 @@ if __name__ == "__main__":
 
     flags(sys.argv)
 
-    for i in range(2,5):
-        filename = paths[i]
+    for i in range(1):
+        filename = paths[1]
         flags.filename = os.path.join(prefix, filename)
         flags.res_dir = filename
         flags.ckpt_dir = os.path.join("CKPT_DIR", "HTI_" + filename.split('.')[0])
-        flags.res = f"/mnt/Disk2/ljr2/TSE/res/premostUnlikly{i}.csv"
+        flags.res = f"/mnt/Disk2/ljr2/TSE/res/neg2`test{i}.csv"
 
         data_loader = GData_Loader(flags)
         if i == 0:
