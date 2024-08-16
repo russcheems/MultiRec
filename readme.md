@@ -1,12 +1,12 @@
 <h1 align="center">
-A Multi-task Method for Review-based Recommendation
+A Multi-task Factor Sharing Method for Review-based Recommendation
 </h1>
 
 <p align="center">
   <a href="#2-quick-start🚀">Quick Start</a>
 </p>
 
-Repo for the paper: A Multi-task Method for Review-based Recommendation
+Repo for the paper: A Multi-task Factor Sharing Method for Review-based Recommendation
 
 ## 1. Introduction✨
 
